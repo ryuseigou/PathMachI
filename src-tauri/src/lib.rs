@@ -1,6 +1,9 @@
+use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Mutex;
+use tauri::{AppHandle, Emitter, State};
 
 #[derive(Serialize)]
 pub struct FileItem {
@@ -9,6 +12,11 @@ pub struct FileItem {
     pub is_dir: bool,
     pub size: u64,
     pub extension: Option<String>,
+}
+
+// 監視インスタンスを保持するグローバルステート
+pub struct WatcherState {
+    pub watcher: Mutex<Option<RecommendedWatcher>>,
 }
 
 #[tauri::command]
@@ -87,7 +95,6 @@ fn open_terminal(path: Option<String>) -> Result<(), String> {
     Ok(())
 }
 
-// フォルダを新規作成
 #[tauri::command]
 fn create_directory(parent_path: String, name: String) -> Result<(), String> {
     let mut target = PathBuf::from(parent_path);
@@ -95,7 +102,6 @@ fn create_directory(parent_path: String, name: String) -> Result<(), String> {
     fs::create_dir(&target).map_err(|e| e.to_string())
 }
 
-// ファイルを新規作成（空のファイル）
 #[tauri::command]
 fn create_file(parent_path: String, name: String) -> Result<(), String> {
     let mut target = PathBuf::from(parent_path);
@@ -103,15 +109,45 @@ fn create_file(parent_path: String, name: String) -> Result<(), String> {
     fs::write(&target, "").map_err(|e| e.to_string())
 }
 
-// アイテムを安全にWindowsのゴミ箱へ移動
 #[tauri::command]
 fn move_to_trash(path: String) -> Result<(), String> {
     trash::delete(PathBuf::from(path)).map_err(|e| e.to_string())
 }
 
+// 指定したフォルダの変更をリアルタイム監視するコマンド
+#[tauri::command]
+fn start_watching(app: AppHandle, state: State<'_, WatcherState>, path: String) -> Result<(), String> {
+    let mut watcher_lock = state.watcher.lock().map_err(|e| e.to_string())?;
+
+    let app_handle = app.clone();
+    let mut watcher = RecommendedWatcher::new(
+        move |res: Result<Event, notify::Error>| {
+            if let Ok(event) = res {
+                // ファイルの作成、削除、リネーム等の変更を検知
+                if event.kind.is_create() || event.kind.is_remove() || event.kind.is_modify() {
+                    let _ = app_handle.emit("dir-changed", ());
+                }
+            }
+        },
+        notify::Config::default(),
+    ).map_err(|e| e.to_string())?;
+
+    let target_path = PathBuf::from(&path);
+    if target_path.exists() {
+        // 現在のディレクトリ直下のみを監視（NonRecursiveで負荷を最小化）
+        watcher.watch(&target_path, RecursiveMode::NonRecursive).map_err(|e| e.to_string())?;
+        *watcher_lock = Some(watcher);
+    }
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(WatcherState {
+            watcher: Mutex::new(None),
+        })
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             get_directory_items,
@@ -119,7 +155,8 @@ pub fn run() {
             open_terminal,
             create_directory,
             create_file,
-            move_to_trash
+            move_to_trash,
+            start_watching
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

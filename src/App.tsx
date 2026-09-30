@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, Text, Grid, Billboard } from "@react-three/drei";
 import {
@@ -81,7 +82,7 @@ function getAppInfo(item: FileItem): { appName: string; icon: string; badgeColor
     case "jpeg":
     case "gif":
     case "webp":
-      return { appName: "フォト", icon: "🖼️️", badgeColor: "#d97706" };
+      return { appName: "フォト", icon: "🖼", badgeColor: "#d97706" };
     case "mp4":
     case "mov":
       return { appName: "ビデオ", icon: "🎬", badgeColor: "#7c3aed" };
@@ -194,7 +195,11 @@ export default function App() {
   const [items, setItems] = useState<FileItem[]>([]);
   const [selectedItem, setSelectedItem] = useState<FileItem | null>(null);
   const [currentPath, setCurrentPath] = useState<string>("");
+  const currentPathRef = useRef<string>("");
 
+  currentPathRef.current = currentPath;
+
+  // 指定パスのファイル一覧を取得
   async function loadDirectory(path: string | null) {
     try {
       const fileList = await invoke<FileItem[]>("get_directory_items", {
@@ -203,20 +208,45 @@ export default function App() {
       setItems(fileList);
       setSelectedItem(null);
 
-      if (path) {
-        setCurrentPath(path);
-      } else if (fileList.length > 0) {
+      let resolvedPath = path;
+      if (!resolvedPath && fileList.length > 0) {
         const sample = fileList[0].path;
-        const parent = sample.substring(0, sample.lastIndexOf("\\"));
-        setCurrentPath(parent);
+        resolvedPath = sample.substring(0, sample.lastIndexOf("\\"));
+      }
+
+      if (resolvedPath) {
+        setCurrentPath(resolvedPath);
+        // Rust側にこのパスのリアルタイム監視を開始させる
+        await invoke("start_watching", { path: resolvedPath });
       }
     } catch (err) {
       console.error("ディレクトリ読み込みエラー:", err);
     }
   }
 
+  // 初期ロード
   useEffect(() => {
     loadDirectory(null);
+
+    // Rustからのファイル変更通知（dir-changed）を受信して街を自動更新
+    const unlistenPromise = listen("dir-changed", () => {
+      if (currentPathRef.current) {
+        loadDirectory(currentPathRef.current);
+      }
+    });
+
+    // ウィンドウにフォーカスが戻った時も念のため自動更新
+    const handleFocus = () => {
+      if (currentPathRef.current) {
+        loadDirectory(currentPathRef.current);
+      }
+    };
+    window.addEventListener("focus", handleFocus);
+
+    return () => {
+      unlistenPromise.then((unlisten) => unlisten());
+      window.removeEventListener("focus", handleFocus);
+    };
   }, []);
 
   async function handleOpenTerminal() {
@@ -227,45 +257,38 @@ export default function App() {
     }
   }
 
-  // 新規フォルダ作成
   async function handleCreateFolder() {
     if (!currentPath) return;
     const name = window.prompt("新しいフォルダ名を入力してください:", "新しいフォルダ");
     if (!name) return;
     try {
       await invoke("create_directory", { parentPath: currentPath, name });
-      await loadDirectory(currentPath);
     } catch (err) {
       alert("フォルダ作成に失敗しました: " + err);
     }
   }
 
-  // 新規ファイル作成
   async function handleCreateFile() {
     if (!currentPath) return;
     const name = window.prompt("新しいファイル名を入力してください（拡張子付き）:", "新規テキスト.txt");
     if (!name) return;
     try {
       await invoke("create_file", { parentPath: currentPath, name });
-      await loadDirectory(currentPath);
     } catch (err) {
       alert("ファイル作成に失敗しました: " + err);
     }
   }
 
-  // ゴミ箱へ移動
   async function handleDeleteItem(item: FileItem) {
     const ok = window.confirm(`「${item.name}」をゴミ箱へ移動しますか？`);
     if (!ok) return;
     try {
       await invoke("move_to_trash", { path: item.path });
-      await loadDirectory(currentPath);
     } catch (err) {
       alert("ゴミ箱への移動に失敗しました: " + err);
     }
   }
 
-  // ショートカットキー（Ctrl + T, Delete）
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.ctrlKey && e.key.toLowerCase() === "t") {
@@ -308,7 +331,6 @@ export default function App() {
 
   return (
     <div className="app-container">
-      {/* 上部ヘッダー */}
       <header className="header-bar">
         <button
           className="nav-btn"
@@ -341,7 +363,6 @@ export default function App() {
           ))}
         </div>
 
-        {/* 新規作成ボタン群 */}
         <div className="action-btn-group">
           <button
             className="nav-btn action-btn"
@@ -373,7 +394,6 @@ export default function App() {
         <span className="count-badge">{items.length} 件</span>
       </header>
 
-      {/* 3D 街ビュー */}
       <div className="canvas-wrapper">
         <Canvas camera={{ position: [9, 14, 16], fov: 45 }}>
           <ambientLight intensity={0.85} />
@@ -410,7 +430,6 @@ export default function App() {
         </Canvas>
       </div>
 
-      {/* 下部ステータスバー */}
       <footer className="footer-bar">
         {selectedItem ? (
           <div className="footer-content">
@@ -447,7 +466,7 @@ export default function App() {
           </div>
         ) : (
           <span className="hint-text">
-            💡 ブロックを選択して「Delete」キーで安全にゴミ箱へ移動できます
+            💡 エクスプローラー等で変更されたファイルもリアルタイムに街へ反映されます
           </span>
         )}
       </footer>
