@@ -2,7 +2,18 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, Text, Grid, Billboard } from "@react-three/drei";
-import { Folder, FileText, ArrowUp, ExternalLink, ChevronRight, Home, Terminal } from "lucide-react";
+import {
+  Folder,
+  FileText,
+  ArrowUp,
+  ExternalLink,
+  ChevronRight,
+  Home,
+  Terminal,
+  FolderPlus,
+  FilePlus,
+  Trash2,
+} from "lucide-react";
 import "./App.css";
 
 interface FileItem {
@@ -13,35 +24,34 @@ interface FileItem {
   extension?: string;
 }
 
-// 拡張子に応じたブロックの配色
 function getBlockColor(item: FileItem): string {
-  if (item.is_dir) return "#4f46e5"; // フォルダ：インディゴ
+  if (item.is_dir) return "#4f46e5";
   const ext = item.extension?.toLowerCase();
   switch (ext) {
     case "txt":
     case "md":
     case "log":
-      return "#38bdf8"; // テキスト：スカイブルー
+      return "#38bdf8";
     case "png":
     case "jpg":
     case "jpeg":
     case "gif":
     case "webp":
-      return "#facc15"; // 画像：イエロー
+      return "#facc15";
     case "mp4":
     case "mov":
     case "mp3":
     case "wav":
-      return "#c084fc"; // メディア：パープル
+      return "#c084fc";
     case "pdf":
-      return "#fb7185"; // PDF：ローズ
+      return "#fb7185";
     case "zip":
     case "rar":
     case "7z":
-      return "#f97316"; // 圧縮：オレンジ
+      return "#f97316";
     case "exe":
     case "msi":
-      return "#ef4444"; // 実行ファイル：レッド
+      return "#ef4444";
     case "ts":
     case "tsx":
     case "js":
@@ -49,13 +59,12 @@ function getBlockColor(item: FileItem): string {
     case "rs":
     case "java":
     case "py":
-      return "#34d399"; // ソースコード：エメラルド
+      return "#34d399";
     default:
-      return "#94a3b8"; // その他：グレー
+      return "#94a3b8";
   }
 }
 
-// [A1] 関連付けアプリの情報を判定する関数
 function getAppInfo(item: FileItem): { appName: string; icon: string; badgeColor: string } {
   if (item.is_dir) {
     return { appName: "エクスプローラー", icon: "📁", badgeColor: "#4338ca" };
@@ -72,7 +81,7 @@ function getAppInfo(item: FileItem): { appName: string; icon: string; badgeColor
     case "jpeg":
     case "gif":
     case "webp":
-      return { appName: "フォト", icon: "🖼️", badgeColor: "#d97706" };
+      return { appName: "フォト", icon: "🖼️️", badgeColor: "#d97706" };
     case "mp4":
     case "mov":
       return { appName: "ビデオ", icon: "🎬", badgeColor: "#7c3aed" };
@@ -101,7 +110,6 @@ function getAppInfo(item: FileItem): { appName: string; icon: string; badgeColor
   }
 }
 
-// 3Dブロック＆ミニ看板コンポーネント
 function BuildingBlock({
   item,
   position,
@@ -124,7 +132,6 @@ function BuildingBlock({
 
   return (
     <group position={position}>
-      {/* 建物 / アイテムブロック本体 */}
       <mesh
         position={[0, height / 2, 0]}
         onClick={(e) => {
@@ -144,21 +151,17 @@ function BuildingBlock({
         />
       </mesh>
 
-      {/* 看板の支柱（ポール） */}
       <mesh position={[0, height + 0.25, 0]}>
         <cylinderGeometry args={[0.02, 0.02, 0.5, 8]} />
         <meshStandardMaterial color="#94a3b8" />
       </mesh>
 
-      {/* 常にカメラの視点方向を向く看板（Billboard） */}
       <Billboard position={[0, height + 0.65, 0]} follow={true}>
-        {/* 看板背景プレート */}
         <mesh position={[0, 0, -0.01]}>
           <planeGeometry args={[2.2, 0.7]} />
           <meshBasicMaterial color="#ffffff" transparent opacity={0.88} />
         </mesh>
 
-        {/* [A1] 関連付けアプリバッジ（上段） */}
         <Text
           position={[0, 0.16, 0]}
           fontSize={0.16}
@@ -170,7 +173,6 @@ function BuildingBlock({
           {`${appInfo.icon} ${appInfo.appName}`}
         </Text>
 
-        {/* ファイル名（下段・アウトライン付きでくっきり） */}
         <Text
           position={[0, -0.12, 0]}
           fontSize={0.2}
@@ -193,7 +195,6 @@ export default function App() {
   const [selectedItem, setSelectedItem] = useState<FileItem | null>(null);
   const [currentPath, setCurrentPath] = useState<string>("");
 
-  // 指定パスのファイル一覧を取得
   async function loadDirectory(path: string | null) {
     try {
       const fileList = await invoke<FileItem[]>("get_directory_items", {
@@ -210,7 +211,7 @@ export default function App() {
         setCurrentPath(parent);
       }
     } catch (err) {
-      console.error("ディレクトリの読み込みに失敗しました:", err);
+      console.error("ディレクトリ読み込みエラー:", err);
     }
   }
 
@@ -218,7 +219,6 @@ export default function App() {
     loadDirectory(null);
   }, []);
 
-  // ターミナル起動
   async function handleOpenTerminal() {
     try {
       await invoke("open_terminal", { path: currentPath || null });
@@ -227,19 +227,58 @@ export default function App() {
     }
   }
 
-  // Ctrl + T ショートカット
+  // 新規フォルダ作成
+  async function handleCreateFolder() {
+    if (!currentPath) return;
+    const name = window.prompt("新しいフォルダ名を入力してください:", "新しいフォルダ");
+    if (!name) return;
+    try {
+      await invoke("create_directory", { parentPath: currentPath, name });
+      await loadDirectory(currentPath);
+    } catch (err) {
+      alert("フォルダ作成に失敗しました: " + err);
+    }
+  }
+
+  // 新規ファイル作成
+  async function handleCreateFile() {
+    if (!currentPath) return;
+    const name = window.prompt("新しいファイル名を入力してください（拡張子付き）:", "新規テキスト.txt");
+    if (!name) return;
+    try {
+      await invoke("create_file", { parentPath: currentPath, name });
+      await loadDirectory(currentPath);
+    } catch (err) {
+      alert("ファイル作成に失敗しました: " + err);
+    }
+  }
+
+  // ゴミ箱へ移動
+  async function handleDeleteItem(item: FileItem) {
+    const ok = window.confirm(`「${item.name}」をゴミ箱へ移動しますか？`);
+    if (!ok) return;
+    try {
+      await invoke("move_to_trash", { path: item.path });
+      await loadDirectory(currentPath);
+    } catch (err) {
+      alert("ゴミ箱への移動に失敗しました: " + err);
+    }
+  }
+
+  // ショートカットキー（Ctrl + T, Delete）
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.ctrlKey && e.key.toLowerCase() === "t") {
         e.preventDefault();
         handleOpenTerminal();
+      } else if (e.key === "Delete" && selectedItem) {
+        handleDeleteItem(selectedItem);
       }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [currentPath]);
+  }, [currentPath, selectedItem]);
 
-  // アイテム起動（フォルダなら中へ、ファイルなら開く）
   async function handleOpenItem(item: FileItem) {
     if (item.is_dir) {
       loadDirectory(item.path);
@@ -252,14 +291,12 @@ export default function App() {
     }
   }
 
-  // 1つ上へ戻る
   function handleGoUp() {
     if (!currentPath || !currentPath.includes("\\")) return;
     const parentPath = currentPath.substring(0, currentPath.lastIndexOf("\\"));
     loadDirectory(parentPath.includes("\\") ? parentPath : parentPath + "\\");
   }
 
-  // パンくずクリック
   function handleBreadcrumbClick(index: number, segments: string[]) {
     const target = segments.slice(0, index + 1).join("\\");
     loadDirectory(target.includes("\\") ? target : target + "\\");
@@ -267,7 +304,7 @@ export default function App() {
 
   const pathSegments = currentPath ? currentPath.split("\\").filter(Boolean) : [];
   const COLS = 5;
-  const SPACING = 2.8; // 看板が重ならないよう少し間隔を広げました
+  const SPACING = 2.8;
 
   return (
     <div className="app-container">
@@ -302,6 +339,26 @@ export default function App() {
               </span>
             </div>
           ))}
+        </div>
+
+        {/* 新規作成ボタン群 */}
+        <div className="action-btn-group">
+          <button
+            className="nav-btn action-btn"
+            onClick={handleCreateFolder}
+            title="新しいフォルダを作成"
+          >
+            <FolderPlus size={15} />
+            <span>＋フォルダ</span>
+          </button>
+          <button
+            className="nav-btn action-btn"
+            onClick={handleCreateFile}
+            title="新しいファイルを作成"
+          >
+            <FilePlus size={15} />
+            <span>＋ファイル</span>
+          </button>
         </div>
 
         <button
@@ -369,20 +426,28 @@ export default function App() {
                 : `${(selectedItem.size / 1024).toFixed(1)} KB`}
             </span>
             <span className="file-detail" style={{ color: "#0284c7", fontWeight: 500 }}>
-              {getAppInfo(selectedItem).icon} {getAppInfo(selectedItem).appName}で起動
+              {getAppInfo(selectedItem).icon} {getAppInfo(selectedItem).appName}
             </span>
             <button
               className="open-btn"
               onClick={() => handleOpenItem(selectedItem)}
             >
               <ExternalLink size={14} />
-              {selectedItem.is_dir ? "中に入る" : "ファイルを開く"}
+              {selectedItem.is_dir ? "中に入る" : "開く"}
+            </button>
+            <button
+              className="delete-btn"
+              onClick={() => handleDeleteItem(selectedItem)}
+              title="ゴミ箱へ移動 (Deleteキー)"
+            >
+              <Trash2 size={14} />
+              ゴミ箱へ
             </button>
             <span className="file-path">{selectedItem.path}</span>
           </div>
         ) : (
           <span className="hint-text">
-            💡 街を回転させても看板は常に正面を向きます。ダブルクリックで起動/中に入れます
+            💡 ブロックを選択して「Delete」キーで安全にゴミ箱へ移動できます
           </span>
         )}
       </footer>

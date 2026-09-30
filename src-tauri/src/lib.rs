@@ -2,7 +2,6 @@ use serde::Serialize;
 use std::fs;
 use std::path::PathBuf;
 
-// フロントエンド（React）に渡すファイル情報の構造体（JavaのDTOやクラスに相当）
 #[derive(Serialize)]
 pub struct FileItem {
     pub name: String,
@@ -12,13 +11,11 @@ pub struct FileItem {
     pub extension: Option<String>,
 }
 
-// Reactから呼び出せるTauriコマンド
 #[tauri::command]
 fn get_directory_items(target_path: Option<String>) -> Result<Vec<FileItem>, String> {
-    // パスが指定されていなければ、Windowsのユーザーホーム（例: C:\Users\ユーザー名）を取得
     let dir = match target_path {
-        Some(p) => PathBuf::from(p),
-        None => dirs::home_dir().unwrap_or_else(|| PathBuf::from("C:\\")),
+        Some(p) if !p.is_empty() => PathBuf::from(p),
+        _ => dirs::home_dir().unwrap_or_else(|| PathBuf::from("C:\\")),
     };
 
     let entries = fs::read_dir(&dir).map_err(|e| e.to_string())?;
@@ -28,13 +25,12 @@ fn get_directory_items(target_path: Option<String>) -> Result<Vec<FileItem>, Str
         let path = entry.path();
         let metadata = match entry.metadata() {
             Ok(m) => m,
-            Err(_) => continue, // アクセス権限がないファイル等はスキップ
+            Err(_) => continue,
         };
 
         let is_dir = metadata.is_dir();
         let name = entry.file_name().to_string_lossy().to_string();
 
-        // 隠しファイル（ドット始まりなど）は初期フェーズでは除外
         if name.starts_with('.') {
             continue;
         }
@@ -57,13 +53,12 @@ fn get_directory_items(target_path: Option<String>) -> Result<Vec<FileItem>, Str
     Ok(items)
 }
 
-// ファイルまたはフォルダをWindowsの既定アプリで開くコマンド
 #[tauri::command]
 fn open_path(path: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x08000000; // 黒いコンソール画面を出さずに起動
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
         std::process::Command::new("cmd")
             .args(["/C", "start", "", &path])
             .creation_flags(CREATE_NO_WINDOW)
@@ -73,20 +68,16 @@ fn open_path(path: String) -> Result<(), String> {
     Ok(())
 }
 
-// 指定したパスを作業ディレクトリとしてPowerShellを起動するコマンド
 #[tauri::command]
 fn open_terminal(path: Option<String>) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         use std::process::Command;
-        
-        // パスが空または未指定ならホームディレクトリを使う
         let dir = match path {
             Some(p) if !p.is_empty() => PathBuf::from(p),
             _ => dirs::home_dir().unwrap_or_else(|| PathBuf::from("C:\\")),
         };
 
-        // 「start」コマンドを介すことで、確実に新しいウィンドウとしてPowerShellを立ち上げる
         Command::new("cmd")
             .args(["/C", "start", "powershell", "-NoExit"])
             .current_dir(&dir)
@@ -96,15 +87,39 @@ fn open_terminal(path: Option<String>) -> Result<(), String> {
     Ok(())
 }
 
+// フォルダを新規作成
+#[tauri::command]
+fn create_directory(parent_path: String, name: String) -> Result<(), String> {
+    let mut target = PathBuf::from(parent_path);
+    target.push(name);
+    fs::create_dir(&target).map_err(|e| e.to_string())
+}
+
+// ファイルを新規作成（空のファイル）
+#[tauri::command]
+fn create_file(parent_path: String, name: String) -> Result<(), String> {
+    let mut target = PathBuf::from(parent_path);
+    target.push(name);
+    fs::write(&target, "").map_err(|e| e.to_string())
+}
+
+// アイテムを安全にWindowsのゴミ箱へ移動
+#[tauri::command]
+fn move_to_trash(path: String) -> Result<(), String> {
+    trash::delete(PathBuf::from(path)).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        // open_terminal を追加
         .invoke_handler(tauri::generate_handler![
             get_directory_items,
             open_path,
-            open_terminal
+            open_terminal,
+            create_directory,
+            create_file,
+            move_to_trash
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
