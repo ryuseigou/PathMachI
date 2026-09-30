@@ -1,25 +1,44 @@
-/* 追加するスタイル */
-.nav-btn {
-  background: #f1f5f9;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  padding: 6px 8px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #475569;
-  transition: all 0.2s;
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
-.nav-btn:hover:not(:disabled) {
-  background: #e2e8f0;
+body, html, #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background-color: #f8fafc;
   color: #0f172a;
 }
 
-.nav-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+.app-container {
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100vh;
+}
+
+.header-bar {
+  height: 48px;
+  background-color: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 8px;
+  z-index: 10;
+}
+
+.icon {
+  color: #64748b;
+}
+
+.path-text {
+  font-weight: 600;
+  font-size: 14px;
+  color: #334155;
 }
 
 .breadcrumbs {
@@ -53,6 +72,99 @@
   color: #0284c7;
 }
 
+.nav-btn {
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 6px 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #475569;
+  transition: all 0.2s;
+}
+
+.nav-btn:hover:not(:disabled) {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.nav-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.terminal-btn {
+  margin-left: auto;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 10px;
+  background-color: #1e293b;
+  color: #f8fafc;
+  border-color: #0f172a;
+}
+
+.terminal-btn:hover:not(:disabled) {
+  background-color: #334155;
+  color: #ffffff;
+}
+
+.count-badge {
+  font-size: 12px;
+  background-color: #f1f5f9;
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+.canvas-wrapper {
+  flex: 1;
+  width: 100%;
+  position: relative;
+  background: linear-gradient(to bottom, #e2e8f0, #f8fafc);
+}
+
+.footer-bar {
+  height: 44px;
+  background-color: #ffffff;
+  border-top: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  font-size: 13px;
+  z-index: 10;
+}
+
+.footer-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.folder-icon {
+  color: #4f46e5;
+}
+
+.file-icon {
+  color: #0284c7;
+}
+
+.file-name {
+  font-weight: 600;
+}
+
+.file-detail {
+  color: #64748b;
+}
+
+.file-path {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
 .open-btn {
   margin-left: 8px;
   display: flex;
@@ -70,4 +182,9 @@
 
 .open-btn:hover {
   background-color: #0369a1;
+}
+
+.hint-text {
+  color: #94a3b8;
+  font-style: italic;
 }

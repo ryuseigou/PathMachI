@@ -73,12 +73,39 @@ fn open_path(path: String) -> Result<(), String> {
     Ok(())
 }
 
+// 指定したパスを作業ディレクトリとしてPowerShellを起動するコマンド
+#[tauri::command]
+fn open_terminal(path: Option<String>) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+        
+        // パスが空または未指定ならホームディレクトリを使う
+        let dir = match path {
+            Some(p) if !p.is_empty() => PathBuf::from(p),
+            _ => dirs::home_dir().unwrap_or_else(|| PathBuf::from("C:\\")),
+        };
+
+        // 「start」コマンドを介すことで、確実に新しいウィンドウとしてPowerShellを立ち上げる
+        Command::new("cmd")
+            .args(["/C", "start", "powershell", "-NoExit"])
+            .current_dir(&dir)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        // open_path を追加
-        .invoke_handler(tauri::generate_handler![get_directory_items, open_path])
+        // open_terminal を追加
+        .invoke_handler(tauri::generate_handler![
+            get_directory_items,
+            open_path,
+            open_terminal
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

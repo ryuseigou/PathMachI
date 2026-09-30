@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, Text, Grid } from "@react-three/drei";
-import { Folder, FileText, ArrowUp, ExternalLink, ChevronRight, Home } from "lucide-react";
+import { Folder, FileText, ArrowUp, ExternalLink, ChevronRight, Home, Terminal } from "lucide-react";
 import "./App.css";
 
 interface FileItem {
@@ -127,6 +127,28 @@ export default function App() {
     loadDirectory(null);
   }, []);
 
+  // ターミナルを起動する関数
+  async function handleOpenTerminal() {
+    if (!currentPath) return;
+    try {
+      await invoke("open_terminal", { path: currentPath });
+    } catch (err) {
+      console.error("ターミナル起動エラー:", err);
+    }
+  }
+
+  // Ctrl + T のキーボードショートカット登録
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.ctrlKey && e.key.toLowerCase() === "t") {
+        e.preventDefault(); // ブラウザ標準の新しいタブ防止
+        handleOpenTerminal();
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [currentPath]);
+
   // アイテムを開く（フォルダなら階層移動、ファイルなら既定アプリ起動）
   async function handleOpenItem(item: FileItem) {
     if (item.is_dir) {
@@ -192,6 +214,16 @@ export default function App() {
             </div>
           ))}
         </div>
+
+        {/* ターミナル即時起動ボタン */}
+        <button
+          className="nav-btn terminal-btn"
+          onClick={handleOpenTerminal}
+          title="この場所でPowerShellを開く (Ctrl + T)"
+        >
+          <Terminal size={15} />
+          <span>ターミナル</span>
+        </button>
 
         <span className="count-badge">{items.length} 件</span>
       </header>
