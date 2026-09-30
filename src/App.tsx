@@ -1,8 +1,9 @@
 import { useEffect, useState, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { Canvas } from "@react-three/fiber";
+import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls, Text, Grid, Billboard } from "@react-three/drei";
+import * as THREE from "three";
 import {
   Folder,
   FileText,
@@ -14,6 +15,8 @@ import {
   FolderPlus,
   FilePlus,
   Trash2,
+  Search,
+  X,
 } from "lucide-react";
 import "./App.css";
 
@@ -111,19 +114,25 @@ function getAppInfo(item: FileItem): { appName: string; icon: string; badgeColor
   }
 }
 
+// 3Dブロックコンポーネント（検索ヒット時のアニメーション対応）
 function BuildingBlock({
   item,
   position,
   isSelected,
+  isSearching,
+  isMatched,
   onSelect,
   onOpen,
 }: {
   item: FileItem;
   position: [number, number, number];
   isSelected: boolean;
+  isSearching: boolean;
+  isMatched: boolean;
   onSelect: () => void;
   onOpen: () => void;
 }) {
+  const meshRef = useRef<THREE.Mesh>(null);
   const color = getBlockColor(item);
   const appInfo = getAppInfo(item);
 
@@ -131,9 +140,42 @@ function BuildingBlock({
   const width = item.is_dir ? 1.4 : 1.0;
   const depth = item.is_dir ? 1.4 : 1.0;
 
+  // 検索ヒット時にピョコピョコ跳ねるアニメーション
+  useFrame((state) => {
+    if (isSearching && isMatched && meshRef.current) {
+      meshRef.current.position.y =
+        height / 2 + Math.abs(Math.sin(state.clock.elapsedTime * 6)) * 0.4;
+    } else if (meshRef.current) {
+      meshRef.current.position.y = height / 2;
+    }
+  });
+
+  // 検索中の色の決定（ヒット時は発光、非ヒット時は半透明グレー）
+  let blockColor = color;
+  let opacity = 1.0;
+  let transparent = false;
+
+  if (isSearching) {
+    if (isMatched) {
+      blockColor = "#eab308"; // 検索ヒット：黄金色に輝く
+    } else {
+      blockColor = "#94a3b8"; // 検索対象外：薄いグレー
+      opacity = 0.2;
+      transparent = true;
+    }
+  }
+
+  if (isSelected) {
+    blockColor = "#22c55e"; // 選択中は鮮やかなグリーン
+    opacity = 1.0;
+    transparent = false;
+  }
+
   return (
     <group position={position}>
+      {/* 建物ブロック本体 */}
       <mesh
+        ref={meshRef}
         position={[0, height / 2, 0]}
         onClick={(e) => {
           e.stopPropagation();
@@ -146,27 +188,40 @@ function BuildingBlock({
       >
         <boxGeometry args={[width, height, depth]} />
         <meshStandardMaterial
-          color={isSelected ? "#22c55e" : color}
+          color={blockColor}
+          transparent={transparent}
+          opacity={opacity}
           roughness={0.3}
           metalness={0.1}
         />
       </mesh>
 
+      {/* 看板の支柱 */}
       <mesh position={[0, height + 0.25, 0]}>
         <cylinderGeometry args={[0.02, 0.02, 0.5, 8]} />
-        <meshStandardMaterial color="#94a3b8" />
+        <meshStandardMaterial
+          color="#94a3b8"
+          transparent={isSearching && !isMatched}
+          opacity={isSearching && !isMatched ? 0.2 : 1.0}
+        />
       </mesh>
 
+      {/* 看板 */}
       <Billboard position={[0, height + 0.65, 0]} follow={true}>
         <mesh position={[0, 0, -0.01]}>
           <planeGeometry args={[2.2, 0.7]} />
-          <meshBasicMaterial color="#ffffff" transparent opacity={0.88} />
+          <meshBasicMaterial
+            color={isSearching && isMatched ? "#fef08a" : "#ffffff"}
+            transparent
+            opacity={isSearching && !isMatched ? 0.2 : 0.92}
+          />
         </mesh>
 
         <Text
           position={[0, 0.16, 0]}
           fontSize={0.16}
-          color={appInfo.badgeColor}
+          color={isSearching && !isMatched ? "#94a3b8" : appInfo.badgeColor}
+          fillOpacity={isSearching && !isMatched ? 0.2 : 1.0}
           anchorX="center"
           anchorY="middle"
           fontWeight="bold"
@@ -177,12 +232,13 @@ function BuildingBlock({
         <Text
           position={[0, -0.12, 0]}
           fontSize={0.2}
-          color="#0f172a"
+          color={isSearching && !isMatched ? "#94a3b8" : "#0f172a"}
+          fillOpacity={isSearching && !isMatched ? 0.2 : 1.0}
           anchorX="center"
           anchorY="middle"
           maxWidth={2.0}
           outlineWidth={0.02}
-          outlineColor="#ffffff"
+          outlineColor={isSearching && isMatched ? "#fef08a" : "#ffffff"}
         >
           {item.name.length > 14 ? item.name.slice(0, 12) + "…" : item.name}
         </Text>
@@ -195,11 +251,12 @@ export default function App() {
   const [items, setItems] = useState<FileItem[]>([]);
   const [selectedItem, setSelectedItem] = useState<FileItem | null>(null);
   const [currentPath, setCurrentPath] = useState<string>("");
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const currentPathRef = useRef<string>("");
 
   currentPathRef.current = currentPath;
 
-  // 指定パスのファイル一覧を取得
   async function loadDirectory(path: string | null) {
     try {
       const fileList = await invoke<FileItem[]>("get_directory_items", {
@@ -216,7 +273,6 @@ export default function App() {
 
       if (resolvedPath) {
         setCurrentPath(resolvedPath);
-        // Rust側にこのパスのリアルタイム監視を開始させる
         await invoke("start_watching", { path: resolvedPath });
       }
     } catch (err) {
@@ -224,18 +280,15 @@ export default function App() {
     }
   }
 
-  // 初期ロード
   useEffect(() => {
     loadDirectory(null);
 
-    // Rustからのファイル変更通知（dir-changed）を受信して街を自動更新
     const unlistenPromise = listen("dir-changed", () => {
       if (currentPathRef.current) {
         loadDirectory(currentPathRef.current);
       }
     });
 
-    // ウィンドウにフォーカスが戻った時も念のため自動更新
     const handleFocus = () => {
       if (currentPathRef.current) {
         loadDirectory(currentPathRef.current);
@@ -289,11 +342,18 @@ export default function App() {
     }
   }
 
+  // キーボードショートカット（Ctrl + T, Delete, Ctrl + F, Esc）
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.ctrlKey && e.key.toLowerCase() === "t") {
         e.preventDefault();
         handleOpenTerminal();
+      } else if (e.ctrlKey && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      } else if (e.key === "Escape") {
+        setSearchQuery("");
+        searchInputRef.current?.blur();
       } else if (e.key === "Delete" && selectedItem) {
         handleDeleteItem(selectedItem);
       }
@@ -304,6 +364,7 @@ export default function App() {
 
   async function handleOpenItem(item: FileItem) {
     if (item.is_dir) {
+      setSearchQuery(""); // 階層移動時は検索クリア
       loadDirectory(item.path);
     } else {
       try {
@@ -316,11 +377,13 @@ export default function App() {
 
   function handleGoUp() {
     if (!currentPath || !currentPath.includes("\\")) return;
+    setSearchQuery("");
     const parentPath = currentPath.substring(0, currentPath.lastIndexOf("\\"));
     loadDirectory(parentPath.includes("\\") ? parentPath : parentPath + "\\");
   }
 
   function handleBreadcrumbClick(index: number, segments: string[]) {
+    setSearchQuery("");
     const target = segments.slice(0, index + 1).join("\\");
     loadDirectory(target.includes("\\") ? target : target + "\\");
   }
@@ -329,12 +392,21 @@ export default function App() {
   const COLS = 5;
   const SPACING = 2.8;
 
+  // 検索条件に合致するかの判定
+  const isSearching = searchQuery.trim().length > 0;
+  const matchedItems = items.filter((item) =>
+    item.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   return (
     <div className="app-container">
       <header className="header-bar">
         <button
           className="nav-btn"
-          onClick={() => loadDirectory(null)}
+          onClick={() => {
+            setSearchQuery("");
+            loadDirectory(null);
+          }}
           title="ホームに戻る"
         >
           <Home size={16} />
@@ -361,6 +433,28 @@ export default function App() {
               </span>
             </div>
           ))}
+        </div>
+
+        {/* 検索バー */}
+        <div className="search-bar">
+          <Search size={14} className="search-icon" />
+          <input
+            ref={searchInputRef}
+            type="text"
+            className="search-input"
+            placeholder="街の中を検索 (Ctrl + F)"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+          {isSearching && (
+            <button
+              className="search-clear-btn"
+              onClick={() => setSearchQuery("")}
+              title="検索クリア (Esc)"
+            >
+              <X size={13} />
+            </button>
+          )}
         </div>
 
         <div className="action-btn-group">
@@ -391,7 +485,9 @@ export default function App() {
           <span>ターミナル</span>
         </button>
 
-        <span className="count-badge">{items.length} 件</span>
+        <span className="count-badge">
+          {isSearching ? `${matchedItems.length} / ${items.length} 件` : `${items.length} 件`}
+        </span>
       </header>
 
       <div className="canvas-wrapper">
@@ -414,12 +510,18 @@ export default function App() {
             const x = (col - (COLS - 1) / 2) * SPACING;
             const z = (row - Math.floor(items.length / COLS) / 2) * SPACING;
 
+            const isMatched = item.name
+              .toLowerCase()
+              .includes(searchQuery.toLowerCase());
+
             return (
               <BuildingBlock
                 key={item.path}
                 item={item}
                 position={[x, 0, z]}
                 isSelected={selectedItem?.path === item.path}
+                isSearching={isSearching}
+                isMatched={isMatched}
                 onSelect={() => setSelectedItem(item)}
                 onOpen={() => handleOpenItem(item)}
               />
@@ -466,7 +568,7 @@ export default function App() {
           </div>
         ) : (
           <span className="hint-text">
-            💡 エクスプローラー等で変更されたファイルもリアルタイムに街へ反映されます
+            💡 Ctrl + F で検索できます。ヒットした建物がピョコピョコ跳ねます
           </span>
         )}
       </footer>

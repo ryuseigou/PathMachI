@@ -227,3 +227,57 @@ body, html, #root {
 .delete-btn:hover {
   background-color: #dc2626;
 }
+
+/* 検索バーのスタイル */
+.search-bar {
+  display: flex;
+  align-items: center;
+  position: relative;
+  background-color: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 4px 8px;
+  width: 220px;
+  transition: all 0.2s;
+}
+
+.search-bar:focus-within {
+  background-color: #ffffff;
+  border-color: #0284c7;
+  box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.15);
+  width: 260px;
+}
+
+.search-icon {
+  color: #94a3b8;
+  margin-right: 6px;
+}
+
+.search-input {
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 13px;
+  width: 100%;
+  color: #0f172a;
+}
+
+.search-input::placeholder {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.search-clear-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+}
+
+.search-clear-btn:hover {
+  color: #0f172a;
+}
