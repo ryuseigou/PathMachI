@@ -120,7 +120,6 @@ function getAppInfo(item: FileItem): { appName: string; icon: string; badgeColor
   }
 }
 
-// 建物・アイテムモデル（屋根・ドア・窓・台座つき）
 function BuildingBlock({
   item,
   position,
@@ -146,7 +145,6 @@ function BuildingBlock({
   const width = item.is_dir ? 1.6 : 1.1;
   const depth = item.is_dir ? 1.6 : 1.1;
 
-  // 検索ヒット時の跳躍アニメーション
   useFrame((state) => {
     const baseY = position[1];
     if (isSearching && isMatched && groupRef.current) {
@@ -179,7 +177,6 @@ function BuildingBlock({
 
   return (
     <group ref={groupRef} position={position}>
-      {/* クリック判定グループ */}
       <group
         onClick={(e) => {
           e.stopPropagation();
@@ -190,7 +187,6 @@ function BuildingBlock({
           onOpen();
         }}
       >
-        {/* === 建物・アイテムの本体 === */}
         <mesh position={[0, height / 2, 0]}>
           <boxGeometry args={[width, height, depth]} />
           <meshStandardMaterial
@@ -203,9 +199,7 @@ function BuildingBlock({
         </mesh>
 
         {item.is_dir ? (
-          /* ================= フォルダ（ビル・家）の装飾 ================= */
           <>
-            {/* 屋根（ピラミッド型ルーフ） */}
             <mesh position={[0, height + 0.35, 0]} rotation={[0, Math.PI / 4, 0]}>
               <coneGeometry args={[width * 0.85, 0.7, 4]} />
               <meshStandardMaterial
@@ -214,14 +208,10 @@ function BuildingBlock({
                 opacity={opacity}
               />
             </mesh>
-
-            {/* 玄関ドア */}
             <mesh position={[0, 0.35, depth / 2 + 0.01]}>
               <planeGeometry args={[0.4, 0.7]} />
               <meshStandardMaterial color="#451a03" />
             </mesh>
-
-            {/* 窓（2階の左右の小窓） */}
             <mesh position={[-0.4, height * 0.65, depth / 2 + 0.01]}>
               <planeGeometry args={[0.3, 0.35]} />
               <meshStandardMaterial color="#bae6fd" />
@@ -232,15 +222,11 @@ function BuildingBlock({
             </mesh>
           </>
         ) : (
-          /* ================= ファイル（コンテナ・キオスク）の装飾 ================= */
           <>
-            {/* 下部の台座（ペデスタル） */}
             <mesh position={[0, 0.06, 0]}>
               <boxGeometry args={[width + 0.15, 0.12, depth + 0.15]} />
               <meshStandardMaterial color="#cbd5e1" />
             </mesh>
-
-            {/* 屋上の小さなフタ / リッジ */}
             <mesh position={[0, height + 0.06, 0]}>
               <boxGeometry args={[width * 0.7, 0.1, depth * 0.7]} />
               <meshStandardMaterial color="#64748b" />
@@ -249,7 +235,6 @@ function BuildingBlock({
         )}
       </group>
 
-      {/* 看板の支柱 */}
       <mesh position={[0, height + (item.is_dir ? 0.9 : 0.4), 0]}>
         <cylinderGeometry args={[0.02, 0.02, 0.4, 8]} />
         <meshStandardMaterial
@@ -259,7 +244,6 @@ function BuildingBlock({
         />
       </mesh>
 
-      {/* 看板 (Billboard) */}
       <Billboard position={[0, height + (item.is_dir ? 1.25 : 0.75), 0]} follow={true}>
         <mesh position={[0, 0, -0.01]}>
           <planeGeometry args={[2.2, 0.7]} />
@@ -300,7 +284,7 @@ function BuildingBlock({
   );
 }
 
-// カメラを滑らかにアニメーション移動させるコントローラー（修正版）
+// カメラコントローラー（地上視点の一人称首振り回転 ＆ 俯瞰OrbitControls）
 function CameraRig({
   viewMode,
   controlsRef,
@@ -308,26 +292,32 @@ function CameraRig({
   viewMode: ViewMode;
   controlsRef: React.RefObject<OrbitControlsImpl | null>;
 }) {
-  const { camera } = useThree();
+  const { camera, gl } = useThree();
   const targetPos = useRef<THREE.Vector3 | null>(null);
   const lookTarget = useRef<THREE.Vector3 | null>(null);
   const isAnimating = useRef(false);
+  const keysPressed = useRef<{ [key: string]: boolean }>({});
 
-  // 視点ボタンが押された時だけターゲット位置を設定してアニメーション開始
+  // 一人称首振り用の角度（Yaw: 左右, Pitch: 上下）
+  const yaw = useRef(0);
+  const pitch = useRef(0);
+  const isPointerDown = useRef(false);
+  const lastMousePos = useRef({ x: 0, y: 0 });
+
+  // 視点切り替えボタンが押された時のアニメーション開始
   useEffect(() => {
     let pos = new THREE.Vector3(10, 15, 18);
     let look = new THREE.Vector3(0, 0, 0);
 
     if (viewMode === "map") {
-      // 🗺️ 俯瞰モード
       pos.set(0, 28, 14);
       look.set(0, 0, 0);
     } else if (viewMode === "street") {
-      // 🚶 地上モード
-      pos.set(0, 2.5, 9);
-      look.set(0, 1.2, 0);
+      pos.set(0, 1.8, 8);
+      look.set(0, 1.8, 0);
+      yaw.current = 0; // 手前を向く
+      pitch.current = 0;
     } else {
-      // 🏘️ 街並みモード
       pos.set(10, 15, 18);
       look.set(0, 0, 0);
     }
@@ -337,32 +327,126 @@ function CameraRig({
     isAnimating.current = true;
   }, [viewMode]);
 
-  // ユーザーがマウスでドラッグ操作を開始したら、アニメーションを即座にキャンセルして自由操作を優先
+  // 地上モード時のドラッグ操作（視点位置を固定した首振り回転）
+  useEffect(() => {
+    const dom = gl.domElement;
+
+    const handlePointerDown = (e: PointerEvent) => {
+      if (viewMode !== "street") return;
+      isPointerDown.current = true;
+      lastMousePos.current = { x: e.clientX, y: e.clientY };
+    };
+
+    const handlePointerMove = (e: PointerEvent) => {
+      if (viewMode !== "street" || !isPointerDown.current) return;
+      const deltaX = e.clientX - lastMousePos.current.x;
+      const deltaY = e.clientY - lastMousePos.current.y;
+      lastMousePos.current = { x: e.clientX, y: e.clientY };
+
+      const sensitivity = 0.003;
+      yaw.current -= deltaX * sensitivity;
+      pitch.current -= deltaY * sensitivity;
+
+      // 上下の首振り角を制限（真上・真下を向きすぎないようにクランプ）
+      pitch.current = Math.max(-Math.PI / 2.3, Math.min(Math.PI / 2.3, pitch.current));
+    };
+
+    const handlePointerUp = () => {
+      isPointerDown.current = false;
+    };
+
+    dom.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+
+    return () => {
+      dom.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, [viewMode, gl.domElement]);
+
+  // 通常モード時のドラッグ開始でアニメーション解除
   useEffect(() => {
     const controls = controlsRef.current;
     if (!controls) return;
 
     const handleStart = () => {
-      isAnimating.current = false;
+      if (viewMode !== "street") {
+        isAnimating.current = false;
+      }
     };
-
     controls.addEventListener("start", handleStart);
     return () => controls.removeEventListener("start", handleStart);
-  }, [controlsRef.current]);
+  }, [controlsRef.current, viewMode]);
 
-  useFrame(() => {
-    // アニメーション中でない場合は何もしない（マウスの自由操作を邪魔しない）
-    if (!isAnimating.current || !targetPos.current || !lookTarget.current) return;
-
-    camera.position.lerp(targetPos.current, 0.08);
-    if (controlsRef.current) {
-      controlsRef.current.target.lerp(lookTarget.current, 0.08);
-      controlsRef.current.update();
+  // キー入力監視
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (document.activeElement?.tagName === "INPUT") return;
+      keysPressed.current[e.key.toLowerCase()] = true;
+    }
+    function handleKeyUp(e: KeyboardEvent) {
+      keysPressed.current[e.key.toLowerCase()] = false;
     }
 
-    // 目標地点に十分近づいたらアニメーション終了
-    if (camera.position.distanceTo(targetPos.current) < 0.1) {
-      isAnimating.current = false;
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, []);
+
+  useFrame((_, delta) => {
+    const controls = controlsRef.current;
+
+    // 1. 視点遷移アニメーション中
+    if (isAnimating.current && targetPos.current && lookTarget.current) {
+      camera.position.lerp(targetPos.current, 0.08);
+      if (controls && viewMode !== "street") {
+        controls.target.lerp(lookTarget.current, 0.08);
+        controls.update();
+      }
+      if (camera.position.distanceTo(targetPos.current) < 0.1) {
+        isAnimating.current = false;
+      }
+      return;
+    }
+
+    // 2. 地上モード（一人称首振り ＆ WASD歩行）
+    if (viewMode === "street") {
+      // 視点位置基準での回転（首振り）をカメラに反映
+      const euler = new THREE.Euler(pitch.current, yaw.current, 0, "YXZ");
+      camera.quaternion.setFromEuler(euler);
+
+      if (document.activeElement?.tagName === "INPUT") return;
+
+      const moveSpeed = 9.0 * delta;
+      const keys = keysPressed.current;
+
+      // 首を向けた水平方向（前進・後退・横歩き）
+      const forward = new THREE.Vector3(-Math.sin(yaw.current), 0, -Math.cos(yaw.current));
+      const right = new THREE.Vector3(Math.cos(yaw.current), 0, -Math.sin(yaw.current));
+      const moveDelta = new THREE.Vector3(0, 0, 0);
+
+      if (keys["w"] || keys["arrowup"]) {
+        moveDelta.add(forward.clone().multiplyScalar(moveSpeed));
+      }
+      if (keys["s"] || keys["arrowdown"]) {
+        moveDelta.sub(forward.clone().multiplyScalar(moveSpeed));
+      }
+      if (keys["d"] || keys["arrowright"]) {
+        moveDelta.add(right.clone().multiplyScalar(moveSpeed));
+      }
+      if (keys["a"] || keys["arrowleft"]) {
+        moveDelta.sub(right.clone().multiplyScalar(moveSpeed));
+      }
+
+      if (moveDelta.lengthSq() > 0) {
+        camera.position.add(moveDelta);
+      }
+      camera.position.y = 1.8; // 目線の高さをキープ
     }
   });
 
@@ -514,7 +598,7 @@ export default function App() {
 
   const pathSegments = currentPath ? currentPath.split("\\").filter(Boolean) : [];
   const COLS = 5;
-  const SPACING = 3.0; // 建物が大きくなったので間隔を微調整
+  const SPACING = 3.0;
 
   const isSearching = searchQuery.trim().length > 0;
   const matchedItems = items.filter((item) =>
@@ -579,12 +663,11 @@ export default function App() {
           )}
         </div>
 
-        {/* 視点切り替えボタングループ */}
         <div className="view-mode-group">
           <button
             className={`view-btn ${viewMode === "map" ? "active" : ""}`}
             onClick={() => setViewMode("map")}
-            title="🗺️ 俯瞰モード（シムシティ風に見下ろす）"
+            title="🗺️ 俯瞰モード（上空から見下ろす）"
           >
             <Map size={14} />
             <span>俯瞰</span>
@@ -600,7 +683,7 @@ export default function App() {
           <button
             className={`view-btn ${viewMode === "street" ? "active" : ""}`}
             onClick={() => setViewMode("street")}
-            title="🚶 地上モード（道路に降り立って散策）"
+            title="🚶 地上モード（ドラッグで首振り見渡し、WASDで歩行）"
           >
             <Eye size={14} />
             <span>地上</span>
@@ -645,7 +728,6 @@ export default function App() {
           <ambientLight intensity={0.85} />
           <directionalLight position={[12, 22, 16]} intensity={1.2} />
 
-          {/* 地面のグリッド道路 */}
           <Grid
             args={[60, 60]}
             cellSize={SPACING}
@@ -679,8 +761,13 @@ export default function App() {
             );
           })}
 
-          <OrbitControls ref={controlsRef} makeDefault maxPolarAngle={Math.PI / 2.05} />
-          {/* カメラの補間アニメーション */}
+          {/* 地上モードの時はOrbitControlsを無効化し、自前の一人称回転を使用 */}
+          <OrbitControls
+            ref={controlsRef}
+            makeDefault
+            enabled={viewMode !== "street"}
+            maxPolarAngle={Math.PI / 2.05}
+          />
           <CameraRig viewMode={viewMode} controlsRef={controlsRef} />
         </Canvas>
       </div>
@@ -721,7 +808,9 @@ export default function App() {
           </div>
         ) : (
           <span className="hint-text">
-            💡 上部の「俯瞰 / 街並み / 地上」ボタンで視点をスムーズに切り替えられます
+            {viewMode === "street"
+              ? "🚶 地上モード: マウスドラッグで周囲を見渡し、[W][A][S][D] でその方向へ歩行移動します"
+              : "💡 「地上」ボタンを押すと、一人称視点で街を見渡しながら散策できます"}
           </span>
         )}
       </footer>
