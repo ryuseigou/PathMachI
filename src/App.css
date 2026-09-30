@@ -281,3 +281,39 @@ body, html, #root {
 .search-clear-btn:hover {
   color: #0f172a;
 }
+
+/* 視点切り替えグループ */
+.view-mode-group {
+  display: flex;
+  background-color: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.view-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.view-btn:hover {
+  color: #0f172a;
+}
+
+.view-btn.active {
+  background-color: #ffffff;
+  color: #0284c7;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}

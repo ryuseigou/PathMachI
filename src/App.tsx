@@ -1,8 +1,9 @@
 import { useEffect, useState, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { Canvas, useFrame } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, Text, Grid, Billboard } from "@react-three/drei";
+import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import * as THREE from "three";
 import {
   Folder,
@@ -17,6 +18,9 @@ import {
   Trash2,
   Search,
   X,
+  Compass,
+  Map,
+  Eye,
 } from "lucide-react";
 import "./App.css";
 
@@ -27,6 +31,8 @@ interface FileItem {
   size: number;
   extension?: string;
 }
+
+type ViewMode = "overview" | "map" | "street";
 
 function getBlockColor(item: FileItem): string {
   if (item.is_dir) return "#4f46e5";
@@ -114,7 +120,7 @@ function getAppInfo(item: FileItem): { appName: string; icon: string; badgeColor
   }
 }
 
-// 3Dブロックコンポーネント（検索ヒット時のアニメーション対応）
+// 建物・アイテムモデル（屋根・ドア・窓・台座つき）
 function BuildingBlock({
   item,
   position,
@@ -132,51 +138,49 @@ function BuildingBlock({
   onSelect: () => void;
   onOpen: () => void;
 }) {
-  const meshRef = useRef<THREE.Mesh>(null);
+  const groupRef = useRef<THREE.Group>(null);
   const color = getBlockColor(item);
   const appInfo = getAppInfo(item);
 
-  const height = item.is_dir ? 2.0 : 0.8;
-  const width = item.is_dir ? 1.4 : 1.0;
-  const depth = item.is_dir ? 1.4 : 1.0;
+  const height = item.is_dir ? 2.4 : 1.0;
+  const width = item.is_dir ? 1.6 : 1.1;
+  const depth = item.is_dir ? 1.6 : 1.1;
 
-  // 検索ヒット時にピョコピョコ跳ねるアニメーション
+  // 検索ヒット時の跳躍アニメーション
   useFrame((state) => {
-    if (isSearching && isMatched && meshRef.current) {
-      meshRef.current.position.y =
-        height / 2 + Math.abs(Math.sin(state.clock.elapsedTime * 6)) * 0.4;
-    } else if (meshRef.current) {
-      meshRef.current.position.y = height / 2;
+    const baseY = position[1];
+    if (isSearching && isMatched && groupRef.current) {
+      groupRef.current.position.y =
+        baseY + Math.abs(Math.sin(state.clock.elapsedTime * 6)) * 0.4;
+    } else if (groupRef.current) {
+      groupRef.current.position.y = baseY;
     }
   });
 
-  // 検索中の色の決定（ヒット時は発光、非ヒット時は半透明グレー）
   let blockColor = color;
   let opacity = 1.0;
   let transparent = false;
 
   if (isSearching) {
     if (isMatched) {
-      blockColor = "#eab308"; // 検索ヒット：黄金色に輝く
+      blockColor = "#eab308";
     } else {
-      blockColor = "#94a3b8"; // 検索対象外：薄いグレー
+      blockColor = "#94a3b8";
       opacity = 0.2;
       transparent = true;
     }
   }
 
   if (isSelected) {
-    blockColor = "#22c55e"; // 選択中は鮮やかなグリーン
+    blockColor = "#22c55e";
     opacity = 1.0;
     transparent = false;
   }
 
   return (
-    <group position={position}>
-      {/* 建物ブロック本体 */}
-      <mesh
-        ref={meshRef}
-        position={[0, height / 2, 0]}
+    <group ref={groupRef} position={position}>
+      {/* クリック判定グループ */}
+      <group
         onClick={(e) => {
           e.stopPropagation();
           onSelect();
@@ -186,19 +190,68 @@ function BuildingBlock({
           onOpen();
         }}
       >
-        <boxGeometry args={[width, height, depth]} />
-        <meshStandardMaterial
-          color={blockColor}
-          transparent={transparent}
-          opacity={opacity}
-          roughness={0.3}
-          metalness={0.1}
-        />
-      </mesh>
+        {/* === 建物・アイテムの本体 === */}
+        <mesh position={[0, height / 2, 0]}>
+          <boxGeometry args={[width, height, depth]} />
+          <meshStandardMaterial
+            color={blockColor}
+            transparent={transparent}
+            opacity={opacity}
+            roughness={0.4}
+            metalness={0.1}
+          />
+        </mesh>
+
+        {item.is_dir ? (
+          /* ================= フォルダ（ビル・家）の装飾 ================= */
+          <>
+            {/* 屋根（ピラミッド型ルーフ） */}
+            <mesh position={[0, height + 0.35, 0]} rotation={[0, Math.PI / 4, 0]}>
+              <coneGeometry args={[width * 0.85, 0.7, 4]} />
+              <meshStandardMaterial
+                color={isSelected ? "#16a34a" : "#312e81"}
+                transparent={transparent}
+                opacity={opacity}
+              />
+            </mesh>
+
+            {/* 玄関ドア */}
+            <mesh position={[0, 0.35, depth / 2 + 0.01]}>
+              <planeGeometry args={[0.4, 0.7]} />
+              <meshStandardMaterial color="#451a03" />
+            </mesh>
+
+            {/* 窓（2階の左右の小窓） */}
+            <mesh position={[-0.4, height * 0.65, depth / 2 + 0.01]}>
+              <planeGeometry args={[0.3, 0.35]} />
+              <meshStandardMaterial color="#bae6fd" />
+            </mesh>
+            <mesh position={[0.4, height * 0.65, depth / 2 + 0.01]}>
+              <planeGeometry args={[0.3, 0.35]} />
+              <meshStandardMaterial color="#bae6fd" />
+            </mesh>
+          </>
+        ) : (
+          /* ================= ファイル（コンテナ・キオスク）の装飾 ================= */
+          <>
+            {/* 下部の台座（ペデスタル） */}
+            <mesh position={[0, 0.06, 0]}>
+              <boxGeometry args={[width + 0.15, 0.12, depth + 0.15]} />
+              <meshStandardMaterial color="#cbd5e1" />
+            </mesh>
+
+            {/* 屋上の小さなフタ / リッジ */}
+            <mesh position={[0, height + 0.06, 0]}>
+              <boxGeometry args={[width * 0.7, 0.1, depth * 0.7]} />
+              <meshStandardMaterial color="#64748b" />
+            </mesh>
+          </>
+        )}
+      </group>
 
       {/* 看板の支柱 */}
-      <mesh position={[0, height + 0.25, 0]}>
-        <cylinderGeometry args={[0.02, 0.02, 0.5, 8]} />
+      <mesh position={[0, height + (item.is_dir ? 0.9 : 0.4), 0]}>
+        <cylinderGeometry args={[0.02, 0.02, 0.4, 8]} />
         <meshStandardMaterial
           color="#94a3b8"
           transparent={isSearching && !isMatched}
@@ -206,8 +259,8 @@ function BuildingBlock({
         />
       </mesh>
 
-      {/* 看板 */}
-      <Billboard position={[0, height + 0.65, 0]} follow={true}>
+      {/* 看板 (Billboard) */}
+      <Billboard position={[0, height + (item.is_dir ? 1.25 : 0.75), 0]} follow={true}>
         <mesh position={[0, 0, -0.01]}>
           <planeGeometry args={[2.2, 0.7]} />
           <meshBasicMaterial
@@ -247,12 +300,84 @@ function BuildingBlock({
   );
 }
 
+// カメラを滑らかにアニメーション移動させるコントローラー（修正版）
+function CameraRig({
+  viewMode,
+  controlsRef,
+}: {
+  viewMode: ViewMode;
+  controlsRef: React.RefObject<OrbitControlsImpl | null>;
+}) {
+  const { camera } = useThree();
+  const targetPos = useRef<THREE.Vector3 | null>(null);
+  const lookTarget = useRef<THREE.Vector3 | null>(null);
+  const isAnimating = useRef(false);
+
+  // 視点ボタンが押された時だけターゲット位置を設定してアニメーション開始
+  useEffect(() => {
+    let pos = new THREE.Vector3(10, 15, 18);
+    let look = new THREE.Vector3(0, 0, 0);
+
+    if (viewMode === "map") {
+      // 🗺️ 俯瞰モード
+      pos.set(0, 28, 14);
+      look.set(0, 0, 0);
+    } else if (viewMode === "street") {
+      // 🚶 地上モード
+      pos.set(0, 2.5, 9);
+      look.set(0, 1.2, 0);
+    } else {
+      // 🏘️ 街並みモード
+      pos.set(10, 15, 18);
+      look.set(0, 0, 0);
+    }
+
+    targetPos.current = pos;
+    lookTarget.current = look;
+    isAnimating.current = true;
+  }, [viewMode]);
+
+  // ユーザーがマウスでドラッグ操作を開始したら、アニメーションを即座にキャンセルして自由操作を優先
+  useEffect(() => {
+    const controls = controlsRef.current;
+    if (!controls) return;
+
+    const handleStart = () => {
+      isAnimating.current = false;
+    };
+
+    controls.addEventListener("start", handleStart);
+    return () => controls.removeEventListener("start", handleStart);
+  }, [controlsRef.current]);
+
+  useFrame(() => {
+    // アニメーション中でない場合は何もしない（マウスの自由操作を邪魔しない）
+    if (!isAnimating.current || !targetPos.current || !lookTarget.current) return;
+
+    camera.position.lerp(targetPos.current, 0.08);
+    if (controlsRef.current) {
+      controlsRef.current.target.lerp(lookTarget.current, 0.08);
+      controlsRef.current.update();
+    }
+
+    // 目標地点に十分近づいたらアニメーション終了
+    if (camera.position.distanceTo(targetPos.current) < 0.1) {
+      isAnimating.current = false;
+    }
+  });
+
+  return null;
+}
+
 export default function App() {
   const [items, setItems] = useState<FileItem[]>([]);
   const [selectedItem, setSelectedItem] = useState<FileItem | null>(null);
   const [currentPath, setCurrentPath] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState<string>("");
+  const [viewMode, setViewMode] = useState<ViewMode>("overview");
+
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const controlsRef = useRef<OrbitControlsImpl | null>(null);
   const currentPathRef = useRef<string>("");
 
   currentPathRef.current = currentPath;
@@ -342,7 +467,6 @@ export default function App() {
     }
   }
 
-  // キーボードショートカット（Ctrl + T, Delete, Ctrl + F, Esc）
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.ctrlKey && e.key.toLowerCase() === "t") {
@@ -364,7 +488,7 @@ export default function App() {
 
   async function handleOpenItem(item: FileItem) {
     if (item.is_dir) {
-      setSearchQuery(""); // 階層移動時は検索クリア
+      setSearchQuery("");
       loadDirectory(item.path);
     } else {
       try {
@@ -390,9 +514,8 @@ export default function App() {
 
   const pathSegments = currentPath ? currentPath.split("\\").filter(Boolean) : [];
   const COLS = 5;
-  const SPACING = 2.8;
+  const SPACING = 3.0; // 建物が大きくなったので間隔を微調整
 
-  // 検索条件に合致するかの判定
   const isSearching = searchQuery.trim().length > 0;
   const matchedItems = items.filter((item) =>
     item.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -435,7 +558,6 @@ export default function App() {
           ))}
         </div>
 
-        {/* 検索バー */}
         <div className="search-bar">
           <Search size={14} className="search-icon" />
           <input
@@ -455,6 +577,34 @@ export default function App() {
               <X size={13} />
             </button>
           )}
+        </div>
+
+        {/* 視点切り替えボタングループ */}
+        <div className="view-mode-group">
+          <button
+            className={`view-btn ${viewMode === "map" ? "active" : ""}`}
+            onClick={() => setViewMode("map")}
+            title="🗺️ 俯瞰モード（シムシティ風に見下ろす）"
+          >
+            <Map size={14} />
+            <span>俯瞰</span>
+          </button>
+          <button
+            className={`view-btn ${viewMode === "overview" ? "active" : ""}`}
+            onClick={() => setViewMode("overview")}
+            title="🏘️ 街並みモード（標準見晴らし）"
+          >
+            <Compass size={14} />
+            <span>街並み</span>
+          </button>
+          <button
+            className={`view-btn ${viewMode === "street" ? "active" : ""}`}
+            onClick={() => setViewMode("street")}
+            title="🚶 地上モード（道路に降り立って散策）"
+          >
+            <Eye size={14} />
+            <span>地上</span>
+          </button>
         </div>
 
         <div className="action-btn-group">
@@ -491,17 +641,18 @@ export default function App() {
       </header>
 
       <div className="canvas-wrapper">
-        <Canvas camera={{ position: [9, 14, 16], fov: 45 }}>
+        <Canvas camera={{ position: [10, 15, 18], fov: 45 }}>
           <ambientLight intensity={0.85} />
-          <directionalLight position={[10, 20, 15]} intensity={1.2} />
+          <directionalLight position={[12, 22, 16]} intensity={1.2} />
 
+          {/* 地面のグリッド道路 */}
           <Grid
-            args={[50, 50]}
+            args={[60, 60]}
             cellSize={SPACING}
             cellColor="#cbd5e1"
             sectionSize={SPACING * 2}
             sectionColor="#94a3b8"
-            fadeDistance={35}
+            fadeDistance={45}
           />
 
           {items.map((item, index) => {
@@ -528,7 +679,9 @@ export default function App() {
             );
           })}
 
-          <OrbitControls makeDefault maxPolarAngle={Math.PI / 2.1} />
+          <OrbitControls ref={controlsRef} makeDefault maxPolarAngle={Math.PI / 2.05} />
+          {/* カメラの補間アニメーション */}
+          <CameraRig viewMode={viewMode} controlsRef={controlsRef} />
         </Canvas>
       </div>
 
@@ -568,7 +721,7 @@ export default function App() {
           </div>
         ) : (
           <span className="hint-text">
-            💡 Ctrl + F で検索できます。ヒットした建物がピョコピョコ跳ねます
+            💡 上部の「俯瞰 / 街並み / 地上」ボタンで視点をスムーズに切り替えられます
           </span>
         )}
       </footer>
